@@ -6,6 +6,7 @@ from sklearn import datasets  # For datasets
 from sklearn.model_selection import train_test_split, cross_val_score, KFold
 from sklearn.svm import SVR, SVC
 from sklearn.cluster import KMeans, MiniBatchKMeans
+from sklearn.preprocessing import StandardScaler
 
 # Please write the optimal hyperparameter values you obtain in the global variable 'optimal_hyperparm' below. This
 # variable should contain the values when I look at your submission. I should not have to run your code to populate this
@@ -101,9 +102,31 @@ class COC131:
         have the same dimensions as the original data
         :return res1: sklearn object used for standardization.
         """
-        res1 = np.zeros(1)
-        res2 = ''
-
+        # Create a StandardScaler object
+        scaler = StandardScaler()
+        
+        # Fit the scaler to the input data
+        # For multidimensional data, ensure it's 2D for StandardScaler
+        original_shape = inp.shape
+        if len(original_shape) > 2:
+            inp_2d = inp.reshape(original_shape[0], -1)
+        else:
+            inp_2d = inp
+        
+        # Fit and transform the data
+        standardized_data = scaler.fit_transform(inp_2d)
+        
+        # Scale to standard deviation of 2.5 (default is 1.0)
+        standardized_data *= 2.5
+        
+        # Reshape back to original dimensions if needed
+        if len(original_shape) > 2:
+            standardized_data = standardized_data.reshape(original_shape)
+        
+        # Assign to the required return variables
+        res1 = scaler
+        res2 = standardized_data
+        
         return res2, res1
 
     def q3(self, test_size=None, pre_split_data=None, hyperparam=None):
