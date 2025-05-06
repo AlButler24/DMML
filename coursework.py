@@ -18,6 +18,9 @@ from sklearn.model_selection import train_test_split, cross_validate
 from itertools import product
 from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.neural_network import MLPClassifier
+import numpy as np
 
 
 
@@ -147,115 +150,101 @@ class COC131:
         :return: The function should return 1 model object and 3 numpy arrays which contain the loss, training accuracy
         and testing accuracy after each training iteration for the best model you found.
         """
-        # Import required libraries
-        from sklearn.model_selection import train_test_split
-        from sklearn.neural_network import MLPClassifier
-        import numpy as np
-        import itertools
 
-        # Default test size if not provided
         if test_size is None:
-            test_size = 0.3  # 30% for testing as specified in the assignment
-        
-        # Use provided pre-split data or split the data
+            test_size = 0.3  # Default to 30% for testing
+
         if pre_split_data is not None:
             x_train, x_test, y_train, y_test = pre_split_data
         else:
             x_train, x_test, y_train, y_test = train_test_split(
                 self.x, self.y, test_size=test_size, random_state=42, stratify=self.y
             )
-        
-        # Standardize the data using q2
-        x_train_std, scaler = self.q2(x_train)
-        x_test_std = scaler.transform(x_test) * 2.5  # Apply standardization to test data
 
-        # Define hyperparameters to test if not provided
+        x_train_std, scaler = self.q2(x_train)
+        x_test_std = scaler.transform(x_test) * 2.5
+
         if hyperparam is None:
             hyperparam = {
                 'hidden_layer_sizes': [(50,), (100,), (50, 25)],
                 'activation': ['relu', 'tanh'],
-                'alpha': [1.0],  # Fixed alpha as required
+                'alpha': [1.0],
                 'learning_rate': ['adaptive'],
                 'batch_size': [64]
             }
-        
-        # Default values for non-optimized parameters
+
         default_params = {
             'max_iter': 200,
             'random_state': 42,
             'solver': 'adam',
-            'early_stopping': False,  
+            'early_stopping': False,
             'validation_fraction': 0.2
         }
-        
-        # Get all hyperparameter combinations using itertools
-        param_names = list(hyperparam.keys())
-        param_values = list(hyperparam.values())
-        param_combinations = list(itertools.product(*param_values))
-        
-        # Initialize arrays to track performance
+
+        # Initialize with default or first values
+        current_best_params = {
+            'hidden_layer_sizes': hyperparam['hidden_layer_sizes'][0],
+            'activation': hyperparam['activation'][0],
+            'alpha': hyperparam['alpha'][0],
+            'learning_rate': hyperparam['learning_rate'][0],
+            'batch_size': hyperparam['batch_size'][0]
+        }
+        current_best_params.update(default_params)
         best_score = -np.inf
-        best_params = None
-        
-        # Manually evaluate each combination - avoids cross_validate issues
-        for combo in param_combinations:
-            # Create parameter dictionary for current combination
-            current_params = dict(zip(param_names, combo))
-            current_params.update(default_params)
-            
-            # Create and evaluate model
-            model = MLPClassifier(**current_params)
-            model.fit(x_train_std, y_train)
-            
-            # Get validation score to evaluate performance
-            score = model.score(x_test_std, y_test)
-            
-            # Update best parameters if current is better
-            if score > best_score:
-                best_score = score
-                best_params = current_params.copy()
-        
-        # Store optimal hyperparameters
+
+        # Sequential hyperparameter optimization (greedy)
+        for param in hyperparam:
+            best_local_value = None
+            local_best_score = -np.inf
+
+            for value in hyperparam[param]:
+                trial_params = current_best_params.copy()
+                trial_params[param] = value
+
+                model = MLPClassifier(**trial_params)
+                model.fit(x_train_std, y_train)
+                score = model.score(x_test_std, y_test)
+
+                if score > local_best_score:
+                    local_best_score = score
+                    best_local_value = value
+
+            current_best_params[param] = best_local_value
+            best_score = local_best_score
+
+        # Store globally
         global optimal_hyperparam
-        optimal_hyperparam = best_params.copy()
-        
-        # Create final model with best parameters
-        res1 = MLPClassifier(**best_params)
-        
-        # Prepare for incremental training and tracking
-        max_iter = 500
+        optimal_hyperparam = current_best_params.copy()
+
+        # Final model for incremental training
+        res1 = MLPClassifier(**current_best_params)
         res1.max_iter = 1
         res1.warm_start = True
-        
-        # Initialize arrays for tracking
+
+        max_iter = 500
         res2 = np.zeros(max_iter)  # loss curve
         res3 = np.zeros(max_iter)  # training accuracy
         res4 = np.zeros(max_iter)  # testing accuracy
-        
-        # Train incrementally and track metrics
+
         for i in range(max_iter):
             res1.fit(x_train_std, y_train)
-            
-            # Store loss
+
             if hasattr(res1, 'loss_curve_') and len(res1.loss_curve_) > 0:
                 res2[i] = res1.loss_curve_[-1]
             else:
                 res2[i] = np.nan
-            
-            # Store accuracies
+
             res3[i] = res1.score(x_train_std, y_train)
             res4[i] = res1.score(x_test_std, y_test)
-            
-            # Simple early stopping based on convergence
+
             if i >= 10:
-                recent_test_acc = res4[max(0, i-10):i+1]
+                recent_test_acc = res4[max(0, i - 10):i + 1]
                 if np.std(recent_test_acc) < 0.001:
-                    # Trim arrays to completed iterations
-                    res2 = res2[:i+1]
-                    res3 = res3[:i+1]
-                    res4 = res4[:i+1]
+                    res2 = res2[:i + 1]
+                    res3 = res3[:i + 1]
+                    res4 = res4[:i + 1]
                     break
-        
+
         return res1, res2, res3, res4
 
     def q4(self):
