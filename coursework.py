@@ -20,14 +20,24 @@ from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPClassifier
-import numpy as np
+from sklearn.neural_network import MLPClassifier
+from sklearn.model_selection import cross_val_score, KFold, StratifiedKFold
+from sklearn.manifold import LocallyLinearEmbedding
+
+        
 
 
 
 # Please write the optimal hyperparameter values you obtain in the global variable 'optimal_hyperparm' below. This
 # variable should contain the values when I look at your submission. I should not have to run your code to populate this
 # variable.
-optimal_hyperparam = {}
+optimal_hyperparam = {
+    'hidden_layer_sizes': (50,),
+    'activation': 'relu',
+    'alpha': 1.0,
+    'batch_size': 256,
+    'learning_rate': 'adaptive'
+}
 
 class COC131:
     def q1(self, filename=None):
@@ -107,28 +117,22 @@ class COC131:
         have the same dimensions as the original data
         :return res1: sklearn object used for standardization.
         """
-        # Create a StandardScaler object
+ 
         scaler = StandardScaler()
-        
-        # Fit the scaler to the input data
-        # For multidimensional data, ensure it's 2D for StandardScaler
+
         original_shape = inp.shape
         if len(original_shape) > 2:
             inp_2d = inp.reshape(original_shape[0], -1)
         else:
             inp_2d = inp
         
-        # Fit and transform the data
         standardized_data = scaler.fit_transform(inp_2d)
         
-        # Scale to standard deviation of 2.5 (default is 1.0)
         standardized_data *= 2.5
         
-        # Reshape back to original dimensions if needed
         if len(original_shape) > 2:
             standardized_data = standardized_data.reshape(original_shape)
         
-        # Assign to the required return variables
         res1 = scaler
         res2 = standardized_data
         
@@ -152,7 +156,7 @@ class COC131:
         """
 
         if test_size is None:
-            test_size = 0.3  # Default to 30% for testing
+            test_size = 0.3
 
         if pre_split_data is not None:
             x_train, x_test, y_train, y_test = pre_split_data
@@ -168,34 +172,30 @@ class COC131:
             hyperparam = {
                 'hidden_layer_sizes': [(50,), (100,), (50, 25)],
                 'activation': ['relu', 'tanh'],
-                'alpha': [1.0],
                 'learning_rate': ['adaptive'],
                 'batch_size': [64]
             }
 
         default_params = {
-            'max_iter': 200,
+            'alpha': 0.1,  
+            'max_iter': 10, 
             'random_state': 42,
             'solver': 'adam',
             'early_stopping': False,
             'validation_fraction': 0.2
         }
 
-        # Initialize with default or first values
         current_best_params = {
-            'hidden_layer_sizes': hyperparam['hidden_layer_sizes'][0],
-            'activation': hyperparam['activation'][0],
-            'alpha': hyperparam['alpha'][0],
-            'learning_rate': hyperparam['learning_rate'][0],
-            'batch_size': hyperparam['batch_size'][0]
+            key: values[0] for key, values in hyperparam.items()
         }
         current_best_params.update(default_params)
-        best_score = -np.inf
 
-        # Sequential hyperparameter optimization (greedy)
+        self.param_performance = {}
+
         for param in hyperparam:
             best_local_value = None
             local_best_score = -np.inf
+            self.param_performance[param] = {}
 
             for value in hyperparam[param]:
                 trial_params = current_best_params.copy()
@@ -205,26 +205,25 @@ class COC131:
                 model.fit(x_train_std, y_train)
                 score = model.score(x_test_std, y_test)
 
+                self.param_performance[param][value] = score
+
                 if score > local_best_score:
                     local_best_score = score
                     best_local_value = value
 
             current_best_params[param] = best_local_value
-            best_score = local_best_score
 
-        # Store globally
         global optimal_hyperparam
         optimal_hyperparam = current_best_params.copy()
 
-        # Final model for incremental training
         res1 = MLPClassifier(**current_best_params)
         res1.max_iter = 1
         res1.warm_start = True
 
         max_iter = 500
-        res2 = np.zeros(max_iter)  # loss curve
-        res3 = np.zeros(max_iter)  # training accuracy
-        res4 = np.zeros(max_iter)  # testing accuracy
+        res2 = np.zeros(max_iter)
+        res3 = np.zeros(max_iter)
+        res4 = np.zeros(max_iter)
 
         for i in range(max_iter):
             res1.fit(x_train_std, y_train)
@@ -261,15 +260,11 @@ class COC131:
         :return: res should be the data you visualized.
         """
         
-        # List of alpha values to test
         alpha_values = [0, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 50, 100]
         
-        # Get the best hyperparameters from q3
-        # Access from global variable if it exists, otherwise use defaults
         try:
             best_params = optimal_hyperparam.copy()
         except NameError:
-            # Default hyperparameters if q3 hasn't been run
             best_params = {
                 'hidden_layer_sizes': (50,),
                 'activation': 'relu',
@@ -280,16 +275,13 @@ class COC131:
                 'random_state': 42
             }
         
-        # Split data into training and testing sets
         x_train, x_test, y_train, y_test = train_test_split(
             self.x, self.y, test_size=0.3, random_state=42, stratify=self.y
         )
         
-        # Standardize data using q2
         x_train_std, scaler = self.q2(x_train)
         x_test_std = scaler.transform(x_test) * 2.5
         
-        # Arrays to store results
         n_alphas = len(alpha_values)
         train_scores = np.zeros(n_alphas)
         test_scores = np.zeros(n_alphas)
@@ -297,42 +289,30 @@ class COC131:
         losses = np.zeros(n_alphas)
         iterations = np.zeros(n_alphas)
         
-        # Train a model for each alpha value
         for i, alpha in enumerate(alpha_values):
-            # Update parameters with current alpha value
             current_params = best_params.copy()
             current_params['alpha'] = alpha
             
-            # Train model
             model = MLPClassifier(**current_params)
             model.fit(x_train_std, y_train)
             
-            # Record performance metrics
             train_scores[i] = model.score(x_train_std, y_train)
             test_scores[i] = model.score(x_test_std, y_test)
             
-            # Record final loss
             if hasattr(model, 'loss_curve_') and len(model.loss_curve_) > 0:
                 losses[i] = model.loss_curve_[-1]
             
-            # Record number of iterations to convergence
             iterations[i] = model.n_iter_
-            
-            # Calculate average magnitude of model parameters (weights and biases)
+
             param_magnitudes = []
             for layer in range(len(model.coefs_)):
-                # Add average magnitude of weights for this layer
                 param_magnitudes.append(np.abs(model.coefs_[layer]).mean())
-                # Add average magnitude of biases for this layer
                 param_magnitudes.append(np.abs(model.intercepts_[layer]).mean())
             
-            # Store the average parameter magnitude across all layers
             avg_param_magnitudes[i] = np.mean(param_magnitudes)
         
-        # Calculate generalization gap (training accuracy - testing accuracy)
         generalization_gap = train_scores - test_scores
         
-        # Compile all results into a structured data object
         res = {
             'alpha_values': np.array(alpha_values),
             'train_scores': train_scores,
@@ -356,13 +336,58 @@ class COC131:
         test and a string representing the result of hypothesis testing. The string can have only two possible values -
         'Splitting method impacted performance' and 'Splitting method had no effect'.
         """
+        global optimal_hyperparam
 
-        res1 = 0
-        res2 = 0
-        res3 = 0
-        res4 = ''
-
+        try:
+            best_params = optimal_hyperparam.copy()
+        except (NameError, AttributeError):
+            best_params = {
+                'hidden_layer_sizes': (50,),
+                'activation': 'relu',
+                'solver': 'adam',
+                'alpha': 0.1,
+                'batch_size': 64,
+                'learning_rate': 'adaptive',
+                'max_iter': 200,
+                'random_state': 42
+            }
+        
+        mlp = MLPClassifier(**best_params)
+        
+        std_x, _ = self.q2(self.x)
+        
+        kf = KFold(n_splits=5, shuffle=True, random_state=42)
+        regular_cv_scores = cross_val_score(mlp, std_x, self.y, cv=kf)
+        
+        skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        stratified_cv_scores = cross_val_score(mlp, std_x, self.y, cv=skf)
+        
+        stratified_cv_accuracy = np.mean(stratified_cv_scores)
+        regular_cv_accuracy = np.mean(regular_cv_scores)
+        
+        n = len(stratified_cv_scores)
+        diff = stratified_cv_scores - regular_cv_scores
+        mean_diff = np.mean(diff)
+        std_diff = np.std(diff, ddof=1)
+        t_stat = mean_diff / (std_diff / np.sqrt(n))
+        
+        df = n - 1
+        
+        from scipy import stats
+        p_value = 2 * (1 - stats.t.cdf(abs(t_stat), df))
+        
+        if p_value < 0.05:
+            result = 'Splitting method impacted performance'
+        else:
+            result = 'Splitting method had no effect'
+        
+        res1 = stratified_cv_accuracy
+        res2 = regular_cv_accuracy
+        res3 = p_value
+        res4 = result
+        
         return res1, res2, res3, res4
+
 
     def q6(self):
         """
@@ -371,7 +396,17 @@ class COC131:
 
         :return: The function should return the data you visualize.
         """
+        # Standardize input data
+        x_std, _ = self.q2(self.x)
 
-        res = np.zeros(1)
+        # Apply LLE
+        lle = LocallyLinearEmbedding(n_components=2, n_neighbors=10, random_state=42)
+        x_lle = lle.fit_transform(x_std)
+
+        # Store result in required variable name
+        res = {
+            'embedding': x_lle,
+            'labels': self.y
+        }
 
         return res
