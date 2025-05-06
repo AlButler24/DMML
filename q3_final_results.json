@@ -1,0 +1,26 @@
+{
+    "test_accuracy": 0.5466666666666666,
+    "train_accuracy": 0.6,
+    "gap": 0.053333333333333344,
+    "loss": 1.6407689985605256,
+    "optimal_params": {
+        "hidden_layer_sizes": [
+            50
+        ],
+        "activation": "relu",
+        "alpha": 50.0,
+        "learning_rate": "constant",
+        "learning_rate_init": 0.001,
+        "max_iter": 1,
+        "early_stopping": true,
+        "validation_fraction": 0.3,
+        "n_iter_no_change": 30,
+        "solver": "adam",
+        "batch_size": 128,
+        "beta_1": 0.9,
+        "beta_2": 0.999,
+        "epsilon": 1e-08,
+        "shuffle": true
+    },
+    "n_params": 10000
+}
