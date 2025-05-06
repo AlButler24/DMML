@@ -16,6 +16,8 @@ from sklearn.model_selection import train_test_split, StratifiedKFold
 import itertools
 from sklearn.model_selection import train_test_split, cross_validate
 from itertools import product
+from sklearn.model_selection import train_test_split
+from sklearn.neural_network import MLPClassifier
 
 
 
@@ -269,9 +271,6 @@ class COC131:
 
         :return: res should be the data you visualized.
         """
-        from sklearn.model_selection import train_test_split
-        from sklearn.neural_network import MLPClassifier
-        import numpy as np
         
         # List of alpha values to test
         alpha_values = [0, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 50, 100]
