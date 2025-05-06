@@ -39,23 +39,19 @@ class COC131:
         one of the folder names in the originally shared dataset.
         """
 
-        dataset_path = "/Users/alex/Documents/Year 3/Data Mining and Machine Learning/EuroSAT_RGB"
+        dataset_path = "../dataset"
         images = []
         labels = []
         
-        # Track specific file if filename is provided
         specific_img = None
         specific_label = ""
     
-        # Get class names from folder names
         class_names = [folder for folder in os.listdir(dataset_path) 
                     if os.path.isdir(os.path.join(dataset_path, folder)) and not folder.startswith('.')]
-    
-        # Process each class folder
+
         for class_name in class_names:
             class_path = os.path.join(dataset_path, class_name)
             
-            # Process each image in the class folder
             for img_file in os.listdir(class_path):
                 # Skip hidden files
                 if img_file.startswith('.'):
@@ -64,34 +60,27 @@ class COC131:
                 img_path = os.path.join(class_path, img_file)
                 
                 try:
-                    # Open the image and convert to RGB if needed
                     img = Image.open(img_path)
                     if img.mode != 'RGB':
                         img = img.convert('RGB')
                     
-                    # Resize to 32x32
                     img = img.resize((32, 32), Image.LANCZOS)
                     
-                    # Convert to numpy array and flatten in row major order
                     img_array = np.array(img, dtype=float).reshape(-1)
-                    
-                    # Add to our dataset
+
                     images.append(img_array)
                     labels.append(class_name)
                     
-                    # Check if this is the specific file we're looking for
                     if filename and os.path.basename(img_path) == filename:
                         specific_img = img_array
                         specific_label = class_name
                         
                 except Exception as e:
                     print(f"Error processing {img_path}: {e}")
-        
-        # Convert lists to numpy arrays
+
         self.x = np.array(images, dtype=float)
         self.y = np.array(labels)
         
-        # Return specific image if filename was provided, otherwise return placeholders
         if filename:
             res1 = specific_img
             res2 = specific_label
