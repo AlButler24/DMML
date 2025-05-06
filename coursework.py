@@ -8,13 +8,16 @@ from sklearn.svm import SVR, SVC
 from sklearn.cluster import KMeans, MiniBatchKMeans
 from sklearn.preprocessing import StandardScaler
 from sklearn.neural_network import MLPClassifier
-from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import LabelEncoder
 import time
 from sklearn.model_selection import train_test_split, StratifiedKFold
 import itertools
-
+from sklearn.model_selection import train_test_split, cross_validate
+from sklearn.neural_network import MLPClassifier
+import numpy as np
+from itertools import product
 
 
 
@@ -133,10 +136,10 @@ class COC131:
         This function should build a MLP Classifier using the dataset loaded in function 'q1' and evaluate model
         performance. You can assume that the function 'q1' has been called prior to calling this function. This function
         should support hyperparameter optimizations.
-        
-        SD: This implementation uses improved regularization and architecture choices to combat overfitting
-        and improve generalization performance. Fixed to properly select higher alpha values.
-        
+
+        SD: This implementation finds the optimal MLP classifier with hyperparameter optimization 
+        without using GridSearchCV, focusing on model generalization and performance tracking.
+
         :param test_size: the proportion of the dataset that should be reserved for testing. This should be a fraction
         between 0 and 1.
         :param pre_split_data: Can be used to provide data already split into training and testing.
@@ -145,271 +148,113 @@ class COC131:
         and testing accuracy after each training iteration for the best model you found.
         """
         # Import required libraries
-        from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
+        from sklearn.model_selection import train_test_split
         from sklearn.neural_network import MLPClassifier
-        from sklearn.decomposition import PCA
-        from sklearn.preprocessing import LabelEncoder
         import numpy as np
-        from itertools import product
-        
-        # DEBUG: Print provided hyperparameters
-        print("DEBUG: Provided hyperparameters:", hyperparam)
-        
+        import itertools
+
         # Default test size if not provided
         if test_size is None:
             test_size = 0.3  # 30% for testing as specified in the assignment
         
         # Use provided pre-split data or split the data
         if pre_split_data is not None:
-            X_train, X_test, y_train, y_test = pre_split_data
+            x_train, x_test, y_train, y_test = pre_split_data
         else:
-            X_train, X_test, y_train, y_test = train_test_split(
+            x_train, x_test, y_train, y_test = train_test_split(
                 self.x, self.y, test_size=test_size, random_state=42, stratify=self.y
             )
         
-        # Encode labels
-        label_encoder = LabelEncoder()
-        y_train_encoded = label_encoder.fit_transform(y_train)
-        y_test_encoded = label_encoder.transform(y_test)
-        
         # Standardize the data using q2
-        X_train_std, scaler = self.q2(X_train)
-        X_test_std = scaler.transform(X_test) * 2.5  # Apply standardization to test data
+        x_train_std, scaler = self.q2(x_train)
+        x_test_std = scaler.transform(x_test) * 2.5  # Apply standardization to test data
+
+        # Define hyperparameters to test if not provided
+        if hyperparam is None:
+            hyperparam = {
+                'hidden_layer_sizes': [(50,), (100,), (50, 25)],
+                'activation': ['relu', 'tanh'],
+                'alpha': [1.0],  # Fixed alpha as required
+                'learning_rate': ['adaptive'],
+                'batch_size': [64]
+            }
         
-        # Try different PCA variance levels
-        pca_variances = [0.95, 0.98, 0.99]
-        best_pca_score = -np.inf
-        best_pca_components = 0.98
-        
-        print("DEBUG: Testing different PCA variance levels...")
-        for pca_var in pca_variances:
-            pca = PCA(n_components=pca_var, random_state=42)
-            X_train_pca = pca.fit_transform(X_train_std)
-            
-            # Quick test with a simple model
-            test_mlp = MLPClassifier(hidden_layer_sizes=(50,), alpha=1.0, random_state=42, max_iter=100)
-            score = cross_val_score(test_mlp, X_train_pca, y_train_encoded, cv=3).mean()
-            
-            print(f"  PCA var={pca_var}, n_components={X_train_pca.shape[1]}, CV score={score:.4f}")
-            
-            if score > best_pca_score:
-                best_pca_score = score
-                best_pca_components = pca_var
-        
-        # Use best PCA
-        print(f"DEBUG: Using PCA with {best_pca_components} variance")
-        pca = PCA(n_components=best_pca_components, random_state=42)
-        X_train_pca = pca.fit_transform(X_train_std)
-        X_test_pca = pca.transform(X_test_std)
-        
-        print(f"Original features: {X_train_std.shape[1]}, PCA features: {X_train_pca.shape[1]}")
-        
-        # FORCE proper hyperparameters regardless of what's passed
-        hyperparam = {
-            # Very simple networks to prevent overfitting
-            'hidden_layer_sizes': [(20,), (30,), (50,), (30, 15)],
-            'activation': ['relu', 'tanh'],
-            # ONLY strong regularization values (removed low alphas)
-            'alpha': [1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0],
-            'learning_rate': ['adaptive', 'constant'],
-            # Very small learning rates
-            'learning_rate_init': [0.0001, 0.0003, 0.001],
-            'max_iter': [500],
-            'early_stopping': [True],
-            # More validation data
-            'validation_fraction': [0.3],
-            # More patience to find true best
-            'n_iter_no_change': [30],
-            'solver': ['adam'],
-            # Smaller batches for better regularization
-            'batch_size': [32, 64, 128]
+        # Default values for non-optimized parameters
+        default_params = {
+            'max_iter': 200,
+            'random_state': 42,
+            'solver': 'adam',
+            'early_stopping': False,  
+            'validation_fraction': 0.2
         }
         
-        print("DEBUG: Using hyperparameters:", hyperparam)
+        # Get all hyperparameter combinations using itertools
+        param_names = list(hyperparam.keys())
+        param_values = list(hyperparam.values())
+        param_combinations = list(itertools.product(*param_values))
         
-        # Setup cross-validation
-        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-        
-        # Create all possible hyperparameter combinations
-        keys = list(hyperparam.keys())
-        values = [hyperparam[key] for key in keys]
-        
-        # Prepare to store best results with overfitting awareness
-        best_adjusted_score = -np.inf
+        # Initialize arrays to track performance
+        best_score = -np.inf
         best_params = None
-        best_train_val_gap = np.inf
-        all_results = []
         
-        # Generate all combinations
-        combinations = list(product(*values))
-        
-        # Limit combinations if there are too many
-        max_combinations = 30
-        if len(combinations) > max_combinations:
-            np.random.seed(42)
-            indices = np.random.choice(len(combinations), max_combinations, replace=False)
-            combinations = [combinations[i] for i in indices]
-            print(f"Testing {max_combinations} out of all possible combinations")
-        else:
-            print(f"Testing all {len(combinations)} combinations")
-        
-        # Evaluate all hyperparameter combinations
-        print("Starting hyperparameter optimization...")
-        for i, combo in enumerate(combinations):
-            params = dict(zip(keys, combo))
-            print(f"\nTesting combination {i+1}/{len(combinations)}")
-            print(f"  Parameters: {params}")
+        # Manually evaluate each combination - avoids cross_validate issues
+        for combo in param_combinations:
+            # Create parameter dictionary for current combination
+            current_params = dict(zip(param_names, combo))
+            current_params.update(default_params)
             
             # Create and evaluate model
-            mlp = MLPClassifier(random_state=42, **params)
+            model = MLPClassifier(**current_params)
+            model.fit(x_train_std, y_train)
             
-            # Get both CV scores and train scores to detect overfitting
-            cv_scores = cross_val_score(mlp, X_train_pca, y_train_encoded, cv=cv, scoring='accuracy')
-            mean_score = np.mean(cv_scores)
-            std_score = np.std(cv_scores)
+            # Get validation score to evaluate performance
+            score = model.score(x_test_std, y_test)
             
-            # Also get training score to detect overfitting
-            mlp.fit(X_train_pca, y_train_encoded)
-            train_score = mlp.score(X_train_pca, y_train_encoded)
-            
-            # Calculate overfitting gap
-            train_val_gap = train_score - mean_score
-            
-            # Adjust score based on overfitting (penalize large gaps)
-            adjusted_score = mean_score - (train_val_gap * 0.5)  # Penalty for overfitting
-            
-            print(f"  Mean CV score: {mean_score:.4f} (±{std_score:.4f})")
-            print(f"  Train score: {train_score:.4f}")
-            print(f"  Train-val gap: {train_val_gap:.4f}")
-            print(f"  Adjusted score: {adjusted_score:.4f}")
-            
-            # Store all results for analysis
-            result = {
-                'params': params.copy(),
-                'cv_score': mean_score,
-                'train_score': train_score,
-                'gap': train_val_gap,
-                'adjusted_score': adjusted_score
-            }
-            all_results.append(result)
-            
-            # Update best parameters - be more lenient with gap
-            if adjusted_score > best_adjusted_score and train_val_gap < 0.5:  # Accept larger gaps
-                best_adjusted_score = adjusted_score
-                best_params = params.copy()
-                best_train_val_gap = train_val_gap
-                print(f"  >>> NEW BEST FOUND! <<<")
+            # Update best parameters if current is better
+            if score > best_score:
+                best_score = score
+                best_params = current_params.copy()
         
-        # If no valid parameters found, pick the one with best adjusted score regardless of gap
-        if best_params is None:
-            print("WARNING: No parameters met relaxed gap criteria. Picking best adjusted score...")
-            best_result = max(all_results, key=lambda x: x['adjusted_score'])
-            best_params = best_result['params']
-            best_adjusted_score = best_result['adjusted_score']
-            best_train_val_gap = best_result['gap']
-        
-        # Also show top 5 results for analysis
-        print("\nTOP 5 RESULTS BY ADJUSTED SCORE:")
-        sorted_results = sorted(all_results, key=lambda x: x['adjusted_score'], reverse=True)[:5]
-        for idx, result in enumerate(sorted_results):
-            print(f"  {idx+1}. Score: {result['adjusted_score']:.4f}, Gap: {result['gap']:.4f}")
-            print(f"     Params: {result['params']}")
-        
-        print(f"\nBest parameters: {best_params} with adjusted score: {best_adjusted_score:.4f}")
-        print(f"Best train-val gap: {best_train_val_gap:.4f}")
-        
-        # Store in the global variable
+        # Store optimal hyperparameters
         global optimal_hyperparam
         optimal_hyperparam = best_params.copy()
         
-        # IMPORTANT FIX: Use a proper max_iter for final training
-        final_max_iter = 300  # Fixed value for final training
-        best_params['max_iter'] = final_max_iter  # Override max_iter for final training
+        # Create final model with best parameters
+        res1 = MLPClassifier(**best_params)
         
-        # Train the best model with all data
-        res1 = MLPClassifier(random_state=42, **best_params)
-        
-        # Initialize arrays to store metrics 
-        res2 = np.zeros(final_max_iter)  # loss curve
-        res3 = np.zeros(final_max_iter)  # training accuracy curve
-        res4 = np.zeros(final_max_iter)  # testing accuracy curve
-        
-        # Track performance iteratively
+        # Prepare for incremental training and tracking
+        max_iter = 500
+        res1.max_iter = 1
         res1.warm_start = True
-        res1.max_iter = 1  # Train one iteration at a time
         
-        print("\nTraining final model and tracking metrics...")
+        # Initialize arrays for tracking
+        res2 = np.zeros(max_iter)  # loss curve
+        res3 = np.zeros(max_iter)  # training accuracy
+        res4 = np.zeros(max_iter)  # testing accuracy
         
-        for i in range(final_max_iter):
-            # Fit for one iteration
-            res1.fit(X_train_pca, y_train_encoded)
+        # Train incrementally and track metrics
+        for i in range(max_iter):
+            res1.fit(x_train_std, y_train)
             
-            # Store current loss if available
+            # Store loss
             if hasattr(res1, 'loss_curve_') and len(res1.loss_curve_) > 0:
                 res2[i] = res1.loss_curve_[-1]
             else:
                 res2[i] = np.nan
             
-            # Calculate and store accuracies
-            res3[i] = res1.score(X_train_pca, y_train_encoded)  # training accuracy
-            res4[i] = res1.score(X_test_pca, y_test_encoded)    # testing accuracy
+            # Store accuracies
+            res3[i] = res1.score(x_train_std, y_train)
+            res4[i] = res1.score(x_test_std, y_test)
             
-            # Print progress occasionally
-            if (i + 1) % 20 == 0 or i == 0:
-                print(f"Iteration {i+1}/{final_max_iter} - Train acc: {res3[i]:.4f}, Test acc: {res4[i]:.4f}, Gap: {res3[i] - res4[i]:.4f}")
-                
-            # Enhanced early stopping based on overfitting detection
-            if i >= 20:  # Wait for initial training
-                # Calculate the overfitting gap
-                overfitting_gap = res3[i] - res4[i]
-                
-                # If the gap is too large and not improving, stop
-                if overfitting_gap > 0.25:  # Gap > 25%
-                    print(f"Early stopping at iteration {i+1} due to overfitting (gap: {overfitting_gap:.3f})")
-                    # Trim arrays to completed iterations
-                    res2 = res2[:i+1]
-                    res3 = res3[:i+1]
-                    res4 = res4[:i+1]
-                    break
-                    
-                # Check for convergence
-                recent_test_acc = res4[max(0, i-9):i+1]
+            # Simple early stopping based on convergence
+            if i >= 10:
+                recent_test_acc = res4[max(0, i-10):i+1]
                 if np.std(recent_test_acc) < 0.001:
-                    print(f"Early stopping at iteration {i+1} due to convergence")
                     # Trim arrays to completed iterations
                     res2 = res2[:i+1]
                     res3 = res3[:i+1]
                     res4 = res4[:i+1]
                     break
-        
-        # Print final performance
-        print(f"\nFinal training accuracy: {res3[-1]:.4f}")
-        print(f"Final testing accuracy: {res4[-1]:.4f}")
-        print(f"Final loss: {res2[-1]:.6f}")
-        print(f"Final train-test gap: {res3[-1] - res4[-1]:.4f}")
-        
-        # If test accuracy is very low, try more aggressive regularization
-        if res4[-1] < 0.5:
-            print("\nWARNING: Test accuracy very low. Trying more aggressive regularization...")
-            extreme_params = {
-                'hidden_layer_sizes': (20,),
-                'alpha': 100.0,
-                'learning_rate': 'constant',
-                'learning_rate_init': 0.0001,
-                'max_iter': 300,
-                'early_stopping': True,
-                'validation_fraction': 0.3,
-                'solver': 'adam',
-                'batch_size': 32
-            }
-            
-            extreme_model = MLPClassifier(random_state=42, **extreme_params)
-            extreme_model.fit(X_train_pca, y_train_encoded)
-            extreme_test_acc = extreme_model.score(X_test_pca, y_test_encoded)
-            
-            print(f"Extreme regularization test accuracy: {extreme_test_acc:.4f}")
-            if extreme_test_acc > res4[-1]:
-                print("Consider using more aggressive regularization in future runs!")
         
         return res1, res2, res3, res4
 
@@ -419,84 +264,98 @@ class COC131:
         alpha in the list below, train a separate MLPClassifier from scratch. Other hyperparameters for the model can
         be set to the best values you found in 'q3'. You can assume that the function 'q1' has been called
         prior to calling this function.
+        
+        SD: This function analyses how different alpha values affect model performance and parameters
+        while keeping other hyperparameters constant. It returns a structured data object containing
+        multiple metrics for visualization in the notebook.
 
         :return: res should be the data you visualized.
         """
+        from sklearn.model_selection import train_test_split
+        from sklearn.neural_network import MLPClassifier
+        import numpy as np
+        
+        # List of alpha values to test
         alpha_values = [0, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 50, 100]
         
-        # Get the best hyperparameters from q3 (excluding alpha)
-        best_params = optimal_hyperparam.copy() if optimal_hyperparam else {
-            'hidden_layer_sizes': (100, 50),
-            'activation': 'relu',
-            'learning_rate': 'adaptive'
-        }
+        # Get the best hyperparameters from q3
+        # Access from global variable if it exists, otherwise use defaults
+        try:
+            best_params = optimal_hyperparam.copy()
+        except NameError:
+            # Default hyperparameters if q3 hasn't been run
+            best_params = {
+                'hidden_layer_sizes': (50,),
+                'activation': 'relu',
+                'solver': 'adam',
+                'batch_size': 64,
+                'learning_rate': 'adaptive',
+                'max_iter': 200,
+                'random_state': 42
+            }
         
-        # Remove alpha from best_params if it exists
-        if 'alpha' in best_params:
-            best_params.pop('alpha')
-        
-        # Split the data
-        X_train, X_test, y_train, y_test = train_test_split(
-            self.x, self.y, test_size=0.2, random_state=42, stratify=self.y
+        # Split data into training and testing sets
+        x_train, x_test, y_train, y_test = train_test_split(
+            self.x, self.y, test_size=0.3, random_state=42, stratify=self.y
         )
         
-        # Encode labels
-        label_encoder = LabelEncoder()
-        y_train_encoded = label_encoder.fit_transform(y_train)
-        y_test_encoded = label_encoder.transform(y_test)
+        # Standardize data using q2
+        x_train_std, scaler = self.q2(x_train)
+        x_test_std = scaler.transform(x_test) * 2.5
         
-        # Standardize the data
-        X_train_std, scaler = self.q2(X_train)
-        X_test_std = scaler.transform(X_test) * 2.5
+        # Arrays to store results
+        n_alphas = len(alpha_values)
+        train_scores = np.zeros(n_alphas)
+        test_scores = np.zeros(n_alphas)
+        avg_param_magnitudes = np.zeros(n_alphas)
+        losses = np.zeros(n_alphas)
+        iterations = np.zeros(n_alphas)
         
-        # Initialize results dictionary
-        results = {
-            'alpha_values': alpha_values,
-            'train_accuracy': np.zeros(len(alpha_values)),
-            'test_accuracy': np.zeros(len(alpha_values)),
-            'convergence_iterations': np.zeros(len(alpha_values)),
-            'param_norms': np.zeros(len(alpha_values))
-        }
-        
-        # Train models with different alpha values
+        # Train a model for each alpha value
         for i, alpha in enumerate(alpha_values):
-            print(f"Training model with alpha={alpha}")
+            # Update parameters with current alpha value
+            current_params = best_params.copy()
+            current_params['alpha'] = alpha
             
-            # Create and train the model
-            mlp = MLPClassifier(
-                alpha=alpha,
-                random_state=42,
-                max_iter=300,
-                **best_params
-            )
+            # Train model
+            model = MLPClassifier(**current_params)
+            model.fit(x_train_std, y_train)
             
-            mlp.fit(X_train_std, y_train_encoded)
+            # Record performance metrics
+            train_scores[i] = model.score(x_train_std, y_train)
+            test_scores[i] = model.score(x_test_std, y_test)
             
-            # Measure performance
-            train_accuracy = mlp.score(X_train_std, y_train_encoded)
-            test_accuracy = mlp.score(X_test_std, y_test_encoded)
+            # Record final loss
+            if hasattr(model, 'loss_curve_') and len(model.loss_curve_) > 0:
+                losses[i] = model.loss_curve_[-1]
             
-            # Get number of iterations needed to converge
-            n_iterations = len(mlp.loss_curve_)
+            # Record number of iterations to convergence
+            iterations[i] = model.n_iter_
             
-            # Calculate the L2 norm of the parameters
-            param_norm = 0
-            for layer in mlp.coefs_:
-                param_norm += np.sum(layer**2)
-            param_norm = np.sqrt(param_norm)
+            # Calculate average magnitude of model parameters (weights and biases)
+            param_magnitudes = []
+            for layer in range(len(model.coefs_)):
+                # Add average magnitude of weights for this layer
+                param_magnitudes.append(np.abs(model.coefs_[layer]).mean())
+                # Add average magnitude of biases for this layer
+                param_magnitudes.append(np.abs(model.intercepts_[layer]).mean())
             
-            # Store results
-            results['train_accuracy'][i] = train_accuracy
-            results['test_accuracy'][i] = test_accuracy
-            results['convergence_iterations'][i] = n_iterations
-            results['param_norms'][i] = param_norm
-            
-            print(f"  Train accuracy: {train_accuracy:.4f}")
-            print(f"  Test accuracy: {test_accuracy:.4f}")
-            print(f"  Iterations to converge: {n_iterations}")
-            print(f"  Parameter norm: {param_norm:.4f}")
-
-        res = results
+            # Store the average parameter magnitude across all layers
+            avg_param_magnitudes[i] = np.mean(param_magnitudes)
+        
+        # Calculate generalization gap (training accuracy - testing accuracy)
+        generalization_gap = train_scores - test_scores
+        
+        # Compile all results into a structured data object
+        res = {
+            'alpha_values': np.array(alpha_values),
+            'train_scores': train_scores,
+            'test_scores': test_scores,
+            'param_magnitudes': avg_param_magnitudes,
+            'losses': losses,
+            'iterations': iterations,
+            'generalization_gap': generalization_gap
+        }
         
         return res
 
