@@ -15,8 +15,6 @@ import time
 from sklearn.model_selection import train_test_split, StratifiedKFold
 import itertools
 from sklearn.model_selection import train_test_split, cross_validate
-from sklearn.neural_network import MLPClassifier
-import numpy as np
 from itertools import product
 
 
